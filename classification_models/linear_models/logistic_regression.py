@@ -3,18 +3,18 @@ from typing import Optional, Dict
 import numpy as np
 
 from gradient_descent.batch import DataBatcher
-from gradient_descent.loss_functions import MeanSquaredError, LossFunction
+from gradient_descent.loss_functions import LogisticLoss, LossFunction
 from gradient_descent.optimizers import GradientDescentOptimizer, SGD, GradientInfo
 from gradient_descent.trainer import GradientDescentTrainer
 from regulizers.regulizers import Regularizer
 
 
-class LinearRegression(GradientDescentTrainer):
+class LogisticRegression(GradientDescentTrainer):
     def __init__(
             self,
             optimizer: Optional[GradientDescentOptimizer] = None,
             regularizer: Optional[Regularizer] = None,
-            loss_function: Optional[LossFunction] = MeanSquaredError,
+            loss_function: Optional[LossFunction] = LogisticLoss,
             max_epochs: int = 1000,
             tolerance: float = 1e-6,
             verbose: bool = True
@@ -33,20 +33,25 @@ class LinearRegression(GradientDescentTrainer):
         self.regularizer = regularizer
 
 
+    @staticmethod
+    def _sigmoid(z: np.ndarray) -> np.ndarray:
+        z = np.clip(z, -250, 250)
+        return 1 / (1 + np.exp(-z))
+
+
     def _predict_batch(self, X: np.ndarray) -> np.ndarray:
-        return X @ self.weights
+        linear_output = X @ self.weights
+        return self._sigmoid(linear_output)
 
 
     def fit(
             self, X: np.ndarray, y: np.ndarray,
             batch_size: Optional[int] = None,
             initial_weights: Optional[np.ndarray] = None
-    ) -> 'LinearRegression':
+    ) -> 'LogisticRegression':
 
-        # Добавляем bias term
         X_with_bias = np.column_stack([np.ones(len(X)), X])
 
-        # Инициализация весов
         if initial_weights is None:
             self.weights = np.random.randn(X_with_bias.shape[1]) * 0.01
         else:
@@ -54,7 +59,6 @@ class LinearRegression(GradientDescentTrainer):
 
         batcher = DataBatcher(X_with_bias, y, batch_size)
 
-        # Сброс оптимизатора
         self.optimizer.reset()
 
         prev_loss = float('inf')
@@ -65,7 +69,6 @@ class LinearRegression(GradientDescentTrainer):
             for batch in batcher:
                 y_pred = self._predict_batch(batch.X)
 
-                # Базовая потеря
                 base_loss = self.loss_function.loss(batch.y, y_pred)
                 base_gradient = self.loss_function.gradient(batch.y, y_pred, batch.X)
 
@@ -86,7 +89,6 @@ class LinearRegression(GradientDescentTrainer):
                     iteration=epoch
                 )
 
-                # Обновление весов
                 self.weights = self.optimizer.update(self.weights, grad_info)
                 epoch_losses.append(total_loss)
 
@@ -104,6 +106,19 @@ class LinearRegression(GradientDescentTrainer):
                 print(f"Epoch {epoch}, Loss: {avg_loss:.6f}")
 
         return self
+
+
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        if self.weights is None:
+            raise ValueError("Model not trained yet!")
+
+        X_with_bias = np.column_stack([np.ones(len(X)), X])
+        return self._predict_batch(X_with_bias)
+
+
+    def predict(self, X: np.ndarray, threshold: float = 0.5) -> np.ndarray:
+        probabilities = self.predict_proba(X)
+        return (probabilities >= threshold).astype(int)
 
 
     def get_training_metadata(self) -> Dict[str, np.ndarray]:
